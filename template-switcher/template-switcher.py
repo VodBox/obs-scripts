@@ -150,16 +150,6 @@ def script_update(settings):
 	print("active:" + active if active != None else "")
 	print("newActive:" + newActive)
 	active = newActive
-#	if clicked:
-#		clicked = False
-#		array = obs.obs_data_get_array(settings, "template")
-#		array2 = obs.obs_data_get_array(settings, "active")
-#		arrayItem = obs.obs_data_create()
-#		obs.obs_data_set_string(arrayItem, "value", "Test")
-#		obs.obs_data_array_push_back(array, arrayItem);
-#		obs.obs_data_release(arrayItem)
-#		obs.obs_data_set_array(settings, "template", array);
-#		obs.obs_data_array_release(array);
 
 # A function named script_defaults will be called to set the default settings
 def script_defaults(settings):
@@ -170,10 +160,6 @@ def script_defaults(settings):
 	obs.obs_source_release(currentScene)
 
 # A function named script_save will be called when the script is saved
-#
-# NOTE: This function is usually used for saving extra data (such as in this
-# case, a hotkey's save data).  Settings set via the properties are saved
-# automatically.
 def script_save(settings):
 	print("Test")
 
