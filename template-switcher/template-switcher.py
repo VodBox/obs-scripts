@@ -2,24 +2,221 @@ import obspython as obs
 import math
 import json
 import os
+import sys
+import io
 import time
+import subprocess
+import pexpect
 import tkinter as tk
+import threading
+from tkinter import *
 from tkinter import filedialog
 
-root = tk.Tk()
-root.withdraw()
+class App(threading.Thread):
 
-templateLists = []
-activeList = None
-active = None
-clicked = False
+	def __init__(self):
+		threading.Thread.__init__(self)
+		self.start()
+
+	def callback(self):
+		self.root.withdraw()
+
+	def show(self):
+		self.root.update()
+		self.root.deiconify()
+
+	def run(self):
+		self.root = tk.Tk()
+		self.root.title("Template Switcher")
+		self.visible = False
+		self.visToggled = False
+		self.root.withdraw()
+		self.quitted = False
+		self.root.protocol("WM_DELETE_WINDOW", self.callback)
+
+		self.quitting = False
+
+		self.scene = StringVar()
+		self.scene.set("Scene")
+		self.scene.trace("w", self.sceneUpdate)
+
+		self.scenes = ("Scene")
+
+		#self.root.minsize(width=400, height=300)
+		self.root.resizable(width=False, height=False)
+
+		row = 0
+
+		durLabel = Label(self.root, text="Transition Time (ms)")
+		durLabel.grid(row=row, column=0)
+
+		self.duration = StringVar()
+		self.duration.set(str(200))
+		self.durEntry = Entry(self.root, textvariable=self.duration)
+		self.durEntry.grid(row=row,column=1, columnspan=2)
+		self.duration.trace("w", self.durUpdate)
+
+		row += 1
+
+		self.selection = tk.OptionMenu(self.root, self.scene, self.scenes)
+		self.selection.grid(row=row, columnspan=3, sticky=N+E+S+W)
+
+		row += 1
+
+		self.list = Listbox(self.root, selectmode=SINGLE)
+
+		self.list.grid(row=row, column=0, rowspan=2,
+				   columnspan=2, sticky=N+E+S+W)
+
+		self.list.insert('end', 'test')
+
+		add = Button(self.root, text="Add", command=self.add)
+		add.grid(row=row, column=2, sticky=N+E+S+W)
+
+		row += 1
+
+		remove = Button(self.root, text="Remove", command=self.remove)
+		remove.grid(row=row, column=2, sticky=N+E+S+W)
+
+		row += 1
+
+		save = Button(self.root, text="Save Current Layout as Template", command=self.save)
+		save.grid(row=row, column=0, columnspan=3, sticky=N+E+S+W)
+
+		row += 1
+
+		switch = Button(self.root, text="Switch to Selected", command=self.switch)
+		switch.grid(row=row, column=0, columnspan=3, sticky=N+E+S+W)
+
+		self.root.after(16, self.loop)
+		self.root.mainloop()
+
+	def loop(self):
+		if self.quitting == False:
+			if self.visToggled:
+				self.visToggled = False
+				if self.visible:
+					self.root.deiconify()
+				else:
+					self.root.withdraw()
+			self.root.after(16, self.loop)
+		else:
+			self.root.destroy()
+			self.quitted = True
+
+	def quit(self):
+		self.quitting = True
+
+	def add(self):
+		global globSettings
+		loc = filedialog.askopenfilename(filetypes=[("JSON", "*.json")], title="Open Template File")
+		templates = obs.obs_data_get_array(globSettings, "templates" + self.scene.get())
+		if templates == None:
+			template = obs.obs_data_array_create()
+			obs.obs_data_set_array(globSettings, "templates" + self.scene.get(), template)
+		new = obs.obs_data_create()
+		length = obs.obs_data_array_count(templates) + 1
+		obs.obs_data_set_string(new, "id", str(length))
+		obs.obs_data_set_string(new, "name", os.path.basename(loc))
+		obs.obs_data_set_string(new, "loc", loc)
+		obs.obs_data_array_push_back(templates, new)
+		obs.obs_data_release(new)
+		obs.obs_data_array_release(templates)
+		self.list.insert('end', str(length) + ". " + os.path.basename(loc))
+
+	def remove(self):
+		global globSettings
+		selection = self.list.curselection()
+		if selection != "":
+			templates = obs.obs_data_get_array(globSettings, "templates" + self.scene.get())
+			obs.obs_data_array_erase(templates, selection[0])
+			length = obs.obs_data_array_count(templates)
+			for i in range(selection[0], length):
+				item = obs.obs_data_array_item(templates, i)
+				obs.obs_data_set_string(item, "id", str(i+1))
+				obs.obs_data_release(item)
+			obs.obs_data_array_release(templates)
+		self.update()
+
+
+	def save(self):
+		currentScene = obs.obs_frontend_get_current_scene()
+		sceneName = obs.obs_source_get_name(currentScene)
+		sceneObject = obs.obs_scene_from_source(currentScene)
+		items = obs.obs_scene_enum_items(sceneObject)
+		transformations = getTransformationList(items)
+		loc = filedialog.asksaveasfilename(filetypes=[("JSON", "*.json")], defaultextension=".json", title="Save Template File", initialfile=sceneName + ".json")
+		f = open(loc,'w')
+		f.write(json.dumps(transformations))
+		f.close()
+		obs.obs_scene_release(sceneObject)
+		obs.obs_source_release(currentScene)
+
+	def switch(self):
+		global globSettings
+		selection = self.list.curselection()
+		if selection != "":
+			templates = obs.obs_data_get_array(globSettings, "templates" + self.scene.get())
+			item = obs.obs_data_array_item(templates, selection[0])
+			loc = obs.obs_data_get_string(item, "loc")
+			obs.obs_data_release(item)
+			obs.obs_data_array_release(templates)
+			start_animation(loc)
+
+	def update(self):
+		global globSettings
+
+		self.selection['menu'].delete(0, 'end')
+		for choice in self.scenes:
+			self.selection['menu'].add_command(label=choice, command=tk._setit(self.scene, choice))
+		stored = obs.obs_data_get_string(globSettings, "scene")
+		if stored in self.scenes:
+			self.scene.set(stored)
+		else:
+			self.scene.set(self.scenes[0])
+
+		self.list.delete(0, self.list.index('end'))
+
+		self.duration.set(obs.obs_data_get_int(globSettings, "duration"))
+
+		templates = obs.obs_data_get_array(globSettings, "templates" + self.scene.get())
+		if templates == None:
+			template = obs.obs_data_array_create()
+			obs.obs_data_set_array(globSettings, "templates" + self.scene.get(), template)
+		length = obs.obs_data_array_count(templates)
+		for i in range(length):
+			item = obs.obs_data_array_item(templates, i)
+			self.list.insert('end', obs.obs_data_get_string(item, "id") + ". " + obs.obs_data_get_string(item, "name"))
+			obs.obs_data_release(item)
+
+		obs.obs_data_array_release(templates)
+
+
+	def sceneUpdate(self, *args):
+		global globSettings
+		obs.obs_data_set_string(globSettings, "scene", self.scene.get())
+		self.update()
+
+	def durUpdate(self, *args):
+		global globSettings
+		if self.duration.get().isdigit():
+			obs.obs_data_set_int(globSettings, "duration", int(self.duration.get()))
+		else:
+			self.duration.set(str(obs.obs_data_get_int(globSettings, "duration")))
+
+
+app = App()
+
 globSettings = None
 
-initial = []
-destination = []
-animTime = math.inf
-stopTime = 10000
-animScene = None
+animationRunning = False
+animationInfo = {
+	'initial': [],
+	'destination': [],
+	'animTime': math.inf,
+	'stopTime': 10000,
+	'animScene': None
+}
 
 def easeInOutQuad(t, b, c, d):
 	t /= d/2
@@ -28,21 +225,26 @@ def easeInOutQuad(t, b, c, d):
 	t-=1
 	return -c/2 * (t*(t-2) - 1) + b
 
-def tick_callback(tick):
+def script_tick(tick):
 	global globSettings
-	global animTime
-	global stopTime
-	global initial
-	global destination
-	global animScene
-	
-	if animTime < stopTime:
-		animTime += tick
-		animTime = min(animTime, stopTime)
-		scaleFactor = easeInOutQuad(animTime / stopTime, 0, 1, 1)
+	global animationInfo
+	global animationRunning
+	global app
+	global currentScene
+
+	if animationRunning:
+		animationInfo["animTime"] += tick
+		animationInfo["animTime"] = min(animationInfo["animTime"], animationInfo["stopTime"])
+		scaleFactor = easeInOutQuad(animationInfo["animTime"] / animationInfo["stopTime"], 0, 1, 1)
+
+		animScene = animationInfo["animScene"]
+		initial = animationInfo["initial"]
+		destination = animationInfo["destination"]
+
 		result = []
+		sceneObject = obs.obs_scene_from_source(animScene)
 		if obs.obs_source_get_name(animScene) in obs.obs_frontend_get_scene_names():
-			items = obs.obs_scene_enum_items(obs.obs_scene_from_source(animScene))
+			items = obs.obs_scene_enum_items(sceneObject)
 			for i in range(len(initial)):
 				pos = obs.vec2()
 				pos.x = scaleFactor*(destination[i]["pos"][0] - initial[i]["pos"][0]) + initial[i]["pos"][0]
@@ -70,65 +272,62 @@ def tick_callback(tick):
 				obs.obs_sceneitem_set_bounds_type(items[i], boundsType)
 				obs.obs_sceneitem_set_bounds_alignment(items[i], boundsAlignment)
 				obs.obs_sceneitem_set_crop(items[i], crop)
-		if animTime == stopTime:
+			obs.sceneitem_list_release(items)
+
+		#obs.obs_scene_release(sceneObject)
+
+		if animationInfo["animTime"] == animationInfo["stopTime"]:
 			obs.obs_source_release(animScene)
+			animationInfo["animScene"] = None
+			animationRunning = False
 
 def start_animation(info):
-	global initial
-	global destination
-	global animTime
-	global stopTime
+	global animationInfo
 	global globSettings
-	global animScene
-	
-	print("anim")
-	
-	animTime = 0
-	stopTime = obs.obs_data_get_int(globSettings, "duration")/1000
-	print(stopTime)
-	
+	global animationRunning
+
+	animationInfo["animTime"] = 0
+	animationInfo["stopTime"] = obs.obs_data_get_int(globSettings, "duration")/1000
+
 	f = open(info,'r')
-	destination = json.loads(f.read())
+	animationInfo["destination"] = json.loads(f.read())
 	f.close()
-	
-	animScene = obs.obs_frontend_get_current_scene()
-	items = obs.obs_scene_enum_items(obs.obs_scene_from_source(animScene))
-	initial = getTransformationList(items)
-	
+
+	animationInfo["animScene"] = obs.obs_get_source_by_name(obs.obs_data_get_string(globSettings, "scene"))
+
+	sceneObject = obs.obs_scene_from_source(animationInfo["animScene"])
+	items = obs.obs_scene_enum_items(sceneObject)
+	animationInfo["initial"] = getTransformationList(items)
+
+	animationRunning = True
+
+	#obs.obs_scene_release(sceneObject)
+
 # ------------------------------------------------------------
 
 # A function named script_properties defines the properties that the user can
 # change for the entire script module itself
 def script_properties():
-	global templateLists
-	global activeList
 	global globSettings
-	
-	props = obs.obs_properties_create()
-	obs.obs_properties_add_int(props, "duration", "Transition Time (ms)", 0, 100000, 100)
 
-	p = obs.obs_properties_add_list(props, "scene", "Scene", obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
-	activeList = obs.obs_properties_add_list(props, "active", "Active Template", obs.OBS_COMBO_TYPE_LIST, obs.OBS_COMBO_FORMAT_STRING)
-	scenes = obs.obs_frontend_get_scene_names()
-	if scenes is not None:
-		for scene in scenes:
-			if not scene.startswith("_"):
-				templateLists.append(obs.obs_properties_add_editable_list(props, "template" + scene, "Templates (" + scene + ")", obs.OBS_EDITABLE_LIST_TYPE_FILES_AND_URLS, "JSON file (*.json)", ""))
-				obs.obs_property_list_add_string(p, scene, scene)
-			
+	props = obs.obs_properties_create()
+	obs.obs_properties_add_button(props, "open", "Open GUI", open_gui)
+	return props
+
+def open_gui(*args):
+	global app
+	app.show()
 	currentScene = obs.obs_frontend_get_current_scene()
 	sceneName = obs.obs_source_get_name(currentScene)
 	obs.obs_source_release(currentScene)
-	
-	items = obs.obs_data_get_array(globSettings, "template" + sceneName)
-	for num in range(obs.obs_data_array_count(items)):
-		item = obs.obs_data_array_item(items, num)
-		value = obs.obs_data_get_string(item, "value")
-		obs.obs_property_list_add_string(activeList, value, value)
-	
-	obs.obs_properties_add_button(props, "save", "Save Current Layout as Template", save)
-
-	return props
+	scenes = obs.obs_frontend_get_scene_names()
+	result = []
+	if scenes is not None:
+		for scene in scenes:
+			result.append(scene)
+	app.scenes = tuple(result)
+	app.scene.set(sceneName)
+	app.update()
 
 # a function name script_description returns the description shown to the user
 def script_description():
@@ -136,55 +335,53 @@ def script_description():
 
 # A function named script_update will be called when settings are changed
 def script_update(settings):
-	global data
 	global globSettings
-	global active
-	global clicked
-	
+
 	globSettings = settings
-	
-	newActive = obs.obs_data_get_string(settings, "active")
-	if active != None and newActive != active:
-		start_animation(newActive)
-	
-	print("active:" + active if active != None else "")
-	print("newActive:" + newActive)
-	active = newActive
 
 # A function named script_defaults will be called to set the default settings
 def script_defaults(settings):
-	obs.obs_data_set_default_int(settings, "duration", 2)
+	obs.obs_data_set_default_int(globSettings, "duration", 200)
 	currentScene = obs.obs_frontend_get_current_scene()
 	sceneName = obs.obs_source_get_name(currentScene)
 	obs.obs_data_set_string(settings, "scene", sceneName)
 	obs.obs_source_release(currentScene)
 
-# A function named script_save will be called when the script is saved
-def script_save(settings):
-	print("Test")
-
 # A function named script_load will be called on startup
 def script_load(settings):
 	global globSettings
 	globSettings = settings
-	obs.obs_add_tick_callback(tick_callback)
+
+def script_unload():
+	global app
+	global globSettings
+	global animationInfo
+
+	if animationInfo["animScene"] != None:
+		obs.obs_source_release(animationInfo["animScene"])
+
+	app.quit()
+	while app.quitted == False:
+		pass
+
+	obs.obs_data_release(globSettings)
+
+	return
 
 def save(*args):
-	global clicked
-	
-	clicked = True
-	
 	currentScene = obs.obs_frontend_get_current_scene()
 	sceneName = obs.obs_source_get_name(currentScene)
-	items = obs.obs_scene_enum_items(obs.obs_scene_from_source(currentScene))
+	sceneObject = obs.obs_scene_from_source(currentScene)
+	items = obs.obs_scene_enum_items(sceneObject)
 	transformations = getTransformationList(items)
 	loc = filedialog.asksaveasfilename(filetypes=[("JSON", "*.json")], title="Save Template File", initialfile=sceneName + ".json")
 	f = open(loc,'w')
 	f.write(json.dumps(transformations))
 	f.close()
+	#obs.obs_scene_release(sceneObject)
 	obs.obs_source_release(currentScene)
 	return True
-	
+
 def getTransformationList(sceneitems):
 	transformations = []
 	for sceneitem in sceneitems:
@@ -201,4 +398,5 @@ def getTransformationList(sceneitems):
 		crop = obs.obs_sceneitem_crop()
 		obs.obs_sceneitem_get_crop(sceneitem, crop)
 		transformations.append({"pos": [pos.x, pos.y], "rot": rot, "scale": [scale.x, scale.y], "alignment": alignment, "bounds": [bounds.x, bounds.y], "boundsType": boundsType, "boundsAlignment": boundsAlignment, "crop": [crop.left, crop.right, crop.top, crop.bottom]})
+		obs.obs_sceneitem_release(sceneitem)
 	return transformations
