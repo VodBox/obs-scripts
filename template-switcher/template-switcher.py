@@ -316,9 +316,11 @@ def script_properties():
 
 def open_gui(*args):
 	global app
+	global globSettings
 	app.show()
 	currentScene = obs.obs_frontend_get_current_scene()
 	sceneName = obs.obs_source_get_name(currentScene)
+	obs.obs_data_set_string(globSettings, "scene", sceneName)
 	obs.obs_source_release(currentScene)
 	scenes = obs.obs_frontend_get_scene_names()
 	result = []
@@ -341,7 +343,7 @@ def script_update(settings):
 
 # A function named script_defaults will be called to set the default settings
 def script_defaults(settings):
-	obs.obs_data_set_default_int(globSettings, "duration", 200)
+	obs.obs_data_set_default_int(settings, "duration", 200)
 	currentScene = obs.obs_frontend_get_current_scene()
 	sceneName = obs.obs_source_get_name(currentScene)
 	obs.obs_data_set_string(settings, "scene", sceneName)
