@@ -30,6 +30,7 @@ def script_properties():
 	return props
 
 def open_source(*args):
+	print(args)
 	t = threading.Thread(target=change_input)
 	t.start()
 
@@ -39,14 +40,17 @@ def change_input():
 	source = obs.obs_data_get_string(globSettings, "source")
 	if url != None and source != None:
 		sourceObj = obs.obs_get_source_by_name(source)
-		streamUrl = streamlink.streams(url)["best"].url
-		if sourceObj != None:
-			settings = obs.obs_data_create()
-			obs.obs_data_set_string(settings, "input", streamUrl)
-			obs.obs_data_set_bool(settings, "is_local_file", False)
-			obs.obs_source_update(sourceObj, settings)
-			obs.obs_data_release(settings)
-			obs.obs_source_release(sourceObj)
+		try:
+			streamUrl = streamlink.streams(url)["best"].url
+			if sourceObj != None:
+				settings = obs.obs_data_create()
+				obs.obs_data_set_string(settings, "input", streamUrl)
+				obs.obs_data_set_bool(settings, "is_local_file", False)
+				obs.obs_source_update(sourceObj, settings)
+				obs.obs_data_release(settings)
+		except streamlink.StreamlinkError:
+			pass
+		obs.obs_source_release(sourceObj)
 
 def script_unload():
 	global globSettings
