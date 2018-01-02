@@ -205,7 +205,7 @@ class App(threading.Thread):
 			self.duration.set(str(obs.obs_data_get_int(globSettings, "duration")))
 
 
-app = App()
+#app = App()
 
 globSettings = None
 
@@ -352,6 +352,16 @@ def script_defaults(settings):
 # A function named script_load will be called on startup
 def script_load(settings):
 	global globSettings
+	global app
+	global animationInfo
+	animationInfo = {
+		'initial': [],
+		'destination': [],
+		'animTime': math.inf,
+		'stopTime': 10000,
+		'animScene': None
+	}
+	app = App()
 	globSettings = settings
 
 def script_unload():
