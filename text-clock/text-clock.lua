@@ -4,11 +4,16 @@ twentyfour    = false
 seconds       = true
 prefix        = ""
 suffix        = ""
+lead          = true
 last_text     = ""
 activated     = false
 
 function timer_callback()
-	local text = (prefix ~= ""	and prefix .. " " or "") .. os.date((twentyfour and "%H:" or "%I:") .. "%M" .. (seconds and ":%S" or "") .. (twentyfour and "" or "%p"), os.time()) .. (suffix ~= "" and " " .. suffix or "")
+	local theDate = os.date((twentyfour and "%H:" or "%I:") .. "%M" .. (seconds and ":%S" or "") .. (twentyfour and "" or "%p"), os.time())
+	if not lead then
+		theDate = theDate:match("^0?(.+)")
+	end
+	local text = (prefix ~= ""	and prefix .. " " or "") .. theDate .. (suffix ~= "" and " " .. suffix or "")
 	if text ~= nil and text ~= last_text then
 		local source = obs.obs_get_source_by_name(source_name)
 		if source ~= nil then
@@ -77,6 +82,7 @@ function script_properties()
 	local props = obs.obs_properties_create()
 	obs.obs_properties_add_bool(props, "twentyfour", "24 Hour Time")
 	obs.obs_properties_add_bool(props, "seconds", "Display Seconds")
+	obs.obs_properties_add_bool(props, "lead", "Leading Zeros")
 	obs.obs_properties_add_text(props, "prefix", "Prefix", obs.OBS_TEXT_DEFAULT)
 	obs.obs_properties_add_text(props, "suffix", "Suffix", obs.OBS_TEXT_DEFAULT)
 	local p = obs.obs_properties_add_list(props, "source", "Text Source", obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
@@ -106,6 +112,7 @@ function script_update(settings)
 
 	twentyfour = obs.obs_data_get_bool(settings, "twentyfour")
 	seconds = obs.obs_data_get_bool(settings, "seconds")
+	lead = obs.obs_data_get_bool(settings, "lead")
 	prefix = obs.obs_data_get_string(settings, "prefix")
 	suffix = obs.obs_data_get_string(settings, "suffix")
 	source_name = obs.obs_data_get_string(settings, "source")
@@ -117,6 +124,7 @@ end
 function script_defaults(settings)
 	obs.obs_data_set_default_bool(settings, "twentyfour", false)
 	obs.obs_data_set_default_bool(settings, "seconds", true)
+	obs.obs_data_set_default_bool(settings, "lead", true)
 end
 
 -- a function named script_load will be called on startup
